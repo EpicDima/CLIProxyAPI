@@ -78,3 +78,45 @@ func TestCodexExecutorCountTokensPreservesToolNumberSchemas(t *testing.T) {
 		}
 	}
 }
+
+func TestCodexCountTokensUsesFinalPayloadModel(t *testing.T) {
+	const text = "Привет, мир! 中文测试。こんにちは世界"
+	for _, tc := range []struct{ request, override string }{
+		{"gpt-4", "gpt-5.4"}, {"gpt-5.4", "gpt-4"},
+	} {
+		t.Run(tc.request+"_to_"+tc.override, func(t *testing.T) {
+			cfg := &config.Config{Payload: config.PayloadConfig{Override: []config.PayloadRule{{
+				Models: []config.PayloadModelRule{{Name: tc.request, Protocol: "codex"}},
+				Params: map[string]any{"model": tc.override},
+			}}}}
+			doc := ojson.NewDocString(`{"messages":[{"role":"user","content":""}]}`)
+			if err := doc.Set("messages.0.content", text); err != nil {
+				t.Fatal(err)
+			}
+			got, err := NewCodexExecutor(cfg).CountTokens(t.Context(), nil, cliproxyexecutor.Request{
+				Model: tc.request, Payload: doc.Bytes(),
+			}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatClaude})
+			if err != nil {
+				t.Fatal(err)
+			}
+			reference, err := NewCodexExecutor(&config.Config{}).CountTokens(t.Context(), nil, cliproxyexecutor.Request{
+				Model: tc.override, Payload: doc.Bytes(),
+			}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatClaude})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got.Payload) != string(reference.Payload) {
+				t.Fatalf("override count %s differs from direct target count %s", got.Payload, reference.Payload)
+			}
+			original, err := NewCodexExecutor(&config.Config{}).CountTokens(t.Context(), nil, cliproxyexecutor.Request{
+				Model: tc.request, Payload: doc.Bytes(),
+			}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatClaude})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got.Payload) == string(original.Payload) {
+				t.Fatalf("fixture failed to distinguish tokenizers: %s", got.Payload)
+			}
+		})
+	}
+}
