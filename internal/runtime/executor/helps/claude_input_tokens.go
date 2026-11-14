@@ -24,11 +24,12 @@ var (
 
 // ClaudeInputTokenState tracks the one-time input token update for a translated Claude stream.
 type ClaudeInputTokenState struct {
-	upstreamFormat  sdktranslator.Format
-	responseFormat  sdktranslator.Format
-	originalRequest []byte
-	codec           tokenizer.Codec
-	handled         bool
+	upstreamFormat   sdktranslator.Format
+	responseFormat   sdktranslator.Format
+	originalRequest  []byte
+	responsesRequest []byte
+	codec            tokenizer.Codec
+	handled          bool
 }
 
 // NewClaudeInputTokenState creates request-scoped state for translated Claude input token usage.
@@ -42,6 +43,13 @@ func NewClaudeInputTokenState(sourceFormat, upstreamFormat, responseFormat sdktr
 		originalRequest: originalRequest,
 		handled:         !enabled,
 	}
+}
+
+// NewCodexInputTokenState estimates translated Claude usage from the finalized Codex request.
+func NewCodexInputTokenState(sourceFormat, responseFormat sdktranslator.Format, finalizedRequest []byte) *ClaudeInputTokenState {
+	state := NewClaudeInputTokenState(sourceFormat, sdktranslator.FromString("codex"), responseFormat, nil)
+	state.responsesRequest = finalizedRequest
+	return state
 }
 
 // TranslateStreamWithClaudeInputTokens translates a stream chunk and estimates Claude message_start input usage once.
@@ -343,11 +351,12 @@ func (state *ClaudeInputTokenState) applyChunk(ctx context.Context, chunk []byte
 				if count == 0 {
 					return chunk, true
 				}
-				updatedPayload, errSet := ojson.SetBytes(payload, "message.usage.input_tokens", count)
-				if errSet != nil {
+				doc := ojson.NewDoc(payload)
+				if errSet := doc.Set("message.usage.input_tokens", count); errSet != nil {
 					state.logEstimateError(ctx, fmt.Errorf("set message_start usage: %w", errSet))
 					return chunk, true
 				}
+				updatedPayload := doc.Bytes()
 				payloadStart := lineStart + payloadOffset
 				payloadStop := lineStart + payloadEnd
 				updated := make([]byte, 0, len(chunk)+len(updatedPayload)-len(payload))
@@ -367,6 +376,17 @@ func (state *ClaudeInputTokenState) applyChunk(ctx context.Context, chunk []byte
 }
 
 func (state *ClaudeInputTokenState) estimate() (int64, error) {
+	if state.responsesRequest != nil {
+		enc := state.codec
+		if enc == nil {
+			var err error
+			enc, err = CodexInputTokenizer(ojson.GetBytesNoCopy(state.responsesRequest, "model").String())
+			if err != nil {
+				return 0, fmt.Errorf("initialize Codex input tokenizer: %w", err)
+			}
+		}
+		return CountResponsesInputTokens(enc, state.responsesRequest)
+	}
 	enc := state.codec
 	if enc == nil {
 		var err error

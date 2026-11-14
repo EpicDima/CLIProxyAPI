@@ -315,7 +315,7 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 		bootstrapStart = nowCodexBootstrap()
 	}
 
-	claudeInputTokens := helps.NewClaudeInputTokenState(from, to, responseFormat, originalPayload)
+	claudeInputTokens := helps.NewCodexInputTokenState(from, responseFormat, clientBody)
 	var param any
 	outputItemsByIndex := make(map[int64][]byte)
 	var outputItemsFallback [][]byte

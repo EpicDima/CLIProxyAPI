@@ -229,7 +229,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 			return false
 		})
 	}
-	claudeInputTokens := helps.NewClaudeInputTokenState(from, to, responseFormat, originalPayload)
+	claudeInputTokens := helps.NewCodexInputTokenState(from, responseFormat, upstreamBody)
 	var param any
 	outputItemsByIndex := make(map[int64][]byte)
 	var outputItemsFallback [][]byte
